@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roxom Market Maker Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 10px;
+            background: #f5f5f5;
+            color: #333;
+            font-size: 12px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 10px;
+        }
+        
+        .header h1 {
+            margin: 5px 0;
+            font-size: 18px;
+        }
+        
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+            background: white;
+            border: 1px solid #ccc;
+        }
+        
+        .stats-table td, .stats-table th {
+            border: 1px solid #ccc;
+            padding: 4px 8px;
+            text-align: left;
+        }
+        
+        .stats-table th {
+            background: #eee;
+            font-weight: bold;
+        }
+        
+        .chart-container {
+            background: white;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+            padding: 10px;
+        }
+        
+        .chart-container h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        
+        .status {
+            font-weight: bold;
+            padding: 2px 6px;
+            border: 1px solid;
+        }
+        
+        .status.live {
+            background: #e8f5e8;
+            color: #0a5d0a;
+            border-color: #0a5d0a;
+        }
+        
+        .status.offline {
+            background: #ffeaea;
+            color: #8b0000;
+            border-color: #8b0000;
+        }
+        
+        .bid { color: #006600; font-weight: bold; }
+        .ask { color: #cc0000; font-weight: bold; }
+        .fair { color: #0066cc; font-weight: bold; }
+        
+        /* Position styles */
+        .position-long { color: #006600; font-weight: bold; }
+        .position-short { color: #cc0000; font-weight: bold; }
+        .position-flat { color: #666666; font-weight: bold; }
+        
+        /* Order status styles */
+        .order-active { color: #0066cc; font-weight: bold; }
+        .order-filled { color: #006600; font-weight: bold; }
+        .order-cancelled { color: #666666; }
+        .order-rejected { color: #cc0000; font-weight: bold; }
+        .order-partial { color: #ff6600; font-weight: bold; }
+        
+        .order-id { 
+            font-family: monospace; 
+            font-size: 10px; 
+            word-break: break-all;
+            max-width: 150px;
+        }
+        
+        #lastUpdate {
+            color: #666;
+            font-size: 11px;
+        }
+        
+        canvas {
+            max-height: 200px;
+        }
+
+        .error-message {
+            background: #ffeaea;
+            color: #8b0000;
+            border: 1px solid #8b0000;
+            padding: 10px;
+            margin: 10px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Roxom Market Maker Dashboard</h1>
+        <div id="status" class="status offline">CONNECTING...</div>
+        <div id="lastUpdate">Last Update: Never</div>
+    </div>
+
+    <div id="errorMessage" class="error-message" style="display: none;">
+        Market Maker is not running or API is unavailable. Please start the bot to see live data.
+    </div>
+
+    <table class="stats-table">
+        <tr>
+            <th>Fair Price</th>
+            <th>Current Bid</th>
+            <th>Current Ask</th>
+            <th>Spread (BPS)</th>
+            <th>Position</th>
+            <th>Total Fills</th>
+            <th>Uptime</th>
+        </tr>
+        <tr>
+            <td id="fairPrice" class="fair">-</td>
+            <td id="bidPrice" class="bid">-</td>
+            <td id="askPrice" class="ask">-</td>
+            <td id="spread">-</td>
+            <td id="position" class="position">FLAT</td>
+            <td id="totalFills">0</td>
+            <td id="uptime">-</td>
+        </tr>
+    </table>
+
+    <div class="chart-container">
+        <h3>Price Chart</h3>
+        <canvas id="priceChart" width="400" height="200"></canvas>
+    </div>
+
+    <!-- Orders Section -->
+    <div class="chart-container">
+        <h3>Active Orders</h3>
+        <table class="stats-table" id="activeOrdersTable">
+            <thead>
+                <tr>
+                    <th>Order ID</th>
+                    <th>Symbol</th>
+                    <th>Status</th>
+                    <th>Quantity</th>
+                    <th>Last Updated</th>
+                </tr>
+            </thead>
+            <tbody id="activeOrdersBody">
+                <tr><td colspan="5">No active orders</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="chart-container">
+        <h3>Order Summary</h3>
+        <table class="stats-table">
+            <tr>
+                <th>Active Orders</th>
+                <th>Filled Orders</th>
+                <th>Cancelled Orders</th>
+                <th>Rejected Orders</th>
+                <th>Current Bid ID</th>
+                <th>Current Ask ID</th>
+            </tr>
+            <tr>
+                <td id="activeOrderCount">-</td>
+                <td id="filledOrderCount">-</td>
+                <td id="cancelledOrderCount">-</td>
+                <td id="rejectedOrderCount">-</td>
+                <td id="currentBidId">-</td>
+                <td id="currentAskId">-</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="chart-container">
+        <h3>Recent Fills (Last 10)</h3>
+        <table class="stats-table" id="recentFillsTable">
+            <thead>
+                <tr>
+                    <th>Order ID</th>
+                    <th>Symbol</th>
+                    <th>Executed Qty</th>
+                    <th>Avg Price</th>
+                    <th>Filled Time</th>
+                </tr>
+            </thead>
+            <tbody id="recentFillsBody">
+                <tr><td colspan="5">No recent fills</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Chart configuration
+        Chart.defaults.color = '#333333';
+        Chart.defaults.borderColor = '#cccccc';
+
+        const priceChart = new Chart(document.getElementById('priceChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Fair Price',
+                        data: [],
+                        borderColor: '#0066cc',
+                        backgroundColor: 'rgba(0, 102, 204, 0.1)',
+                        borderWidth: 1,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Bid',
+                        data: [],
+                        borderColor: '#006600',
+                        backgroundColor: 'rgba(0, 102, 0, 0.1)',
+                        borderWidth: 1,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Ask',
+                        data: [],
+                        borderColor: '#cc0000',
+                        backgroundColor: 'rgba(204, 0, 0, 0.1)',
+                        borderWidth: 1,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        grid: { color: '#e0e0e0' },
+                        ticks: { font: { size: 10 } }
+                    },
+                    x: {
+                        grid: { color: '#e0e0e0' },
+                        ticks: { font: { size: 10 } }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { 
+                            color: '#333333',
+                            font: { size: 11 }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Data storage
+        let allQuotes = [];
+        let orderData = null;
+        let positionData = null;
+        let isApiAvailable = false;
+        let lastActiveOrderIds = new Set();
+
+        // Utility functions
+        function formatPrice(price) {
+            return price ? price.toFixed(8) : '-';
+        }
+
+        function formatTime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${hours}h ${minutes}m ${secs}s`;
+        }
+
+        function formatOrderId(orderId) {
+            return orderId || '-';
+        }
+
+        function getOrderStatusClass(status) {
+            switch (status) {
+                case 'filled': return 'order-filled';
+                case 'cancelled': return 'order-cancelled';
+                case 'rejected': return 'order-rejected';
+                case 'partiallyfilled': return 'order-partial';
+                default: return 'order-active';
+            }
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return '-';
+            
+            try {
+                const date = new Date(timestamp);
+                if (isNaN(date.getTime())) {
+                    return 'Invalid Date';
+                }
+                return date.toLocaleTimeString();
+            } catch (e) {
+                console.warn('Error parsing timestamp:', timestamp, e);
+                return 'Invalid Date';
+            }
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('errorMessage');
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+            
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = 'OFFLINE';
+            statusEl.className = 'status offline';
+        }
+
+        function hideError() {
+            const errorEl = document.getElementById('errorMessage');
+            errorEl.style.display = 'none';
+        }
+
+        function updateStats(latestQuote) {
+            if (!latestQuote) return;
+
+            hideError();
+            
+            document.getElementById('fairPrice').textContent = formatPrice(latestQuote.fair_price);
+            document.getElementById('bidPrice').textContent = formatPrice(latestQuote.bid_price);
+            document.getElementById('askPrice').textContent = formatPrice(latestQuote.ask_price);
+            document.getElementById('spread').textContent = latestQuote.spread_bps ? latestQuote.spread_bps.toFixed(2) : '-';
+            document.getElementById('uptime').textContent = formatTime(latestQuote.uptime || 0);
+            
+            const now = new Date().toLocaleTimeString();
+            document.getElementById('lastUpdate').textContent = `Last Update: ${now}`;
+            
+            // Update status
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = 'LIVE';
+            statusEl.className = 'status live';
+        }
+
+        function hasNewActiveOrders() {
+            if (!orderData || !orderData.active_orders) return false;
+            
+            const currentActiveOrderIds = new Set(
+                orderData.active_orders.map(order => order.orderId).filter(id => id)
+            );
+            
+            // Check if the set of active order IDs has changed
+            if (currentActiveOrderIds.size !== lastActiveOrderIds.size) {
+                lastActiveOrderIds = currentActiveOrderIds;
+                return true;
+            }
+            
+            for (let id of currentActiveOrderIds) {
+                if (!lastActiveOrderIds.has(id)) {
+                    lastActiveOrderIds = currentActiveOrderIds;
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        function updateCharts() {
+            const maxPoints = 100;
+            const recentQuotes = allQuotes.slice(-maxPoints);
+            
+            const labels = recentQuotes.map(q => new Date(q.timestamp).toLocaleTimeString());
+            const fairPrices = recentQuotes.map(q => q.fair_price);
+            const bidPrices = recentQuotes.map(q => q.bid_price);
+            const askPrices = recentQuotes.map(q => q.ask_price);
+
+            // Update price chart
+            priceChart.data.labels = labels;
+            priceChart.data.datasets[0].data = fairPrices;
+            priceChart.data.datasets[1].data = bidPrices;
+            priceChart.data.datasets[2].data = askPrices;
+            priceChart.update('none');
+        }
+
+        function updateOrderSummary() {
+            if (!orderData) return;
+
+            const summary = orderData.order_summary || {};
+            const currentIds = orderData.current_order_ids || {};
+
+            document.getElementById('activeOrderCount').textContent = 
+                Object.keys(orderData.active_orders || {}).length;
+            document.getElementById('filledOrderCount').textContent = summary.filled || 0;
+            document.getElementById('cancelledOrderCount').textContent = summary.cancelled || 0;
+            document.getElementById('rejectedOrderCount').textContent = summary.rejected || 0;
+            document.getElementById('currentBidId').textContent = formatOrderId(currentIds.bid_id);
+            document.getElementById('currentAskId').textContent = formatOrderId(currentIds.ask_id);
+        }
+        
+        function updatePosition(inventory) {
+            const positionEl = document.getElementById('position');
+            const totalFillsEl = document.getElementById('totalFills');
+            
+            const position = inventory.position || 0;
+            const totalFills = inventory.total_fills || 0;
+            
+            // Update total fills
+            totalFillsEl.textContent = totalFills;
+            
+            // Update position display
+            if (position > 0) {
+                positionEl.textContent = `LONG ${Math.abs(position).toFixed(2)}`;
+                positionEl.className = 'position-long';
+            } else if (position < 0) {
+                positionEl.textContent = `SHORT ${Math.abs(position).toFixed(2)}`;
+                positionEl.className = 'position-short';
+            } else {
+                positionEl.textContent = 'FLAT';
+                positionEl.className = 'position-flat';
+            }
+        }
+
+        function updateActiveOrders() {
+            const tbody = document.getElementById('activeOrdersBody');
+            
+            if (!orderData || !orderData.active_orders || orderData.active_orders.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5">No active orders</td></tr>';
+                return;
+            }
+
+            const rows = orderData.active_orders.map(order => `
+                <tr>
+                    <td class="order-id">${formatOrderId(order.orderId)}</td>
+                    <td>${order.symbol || '-'}</td>
+                    <td class="${getOrderStatusClass(order.status)}">${order.status || '-'}</td>
+                    <td>${order.remainingQty || '-'}</td>
+                    <td>${formatTimestamp(order.lastUpdated)}</td>
+                </tr>
+            `).join('');
+
+            tbody.innerHTML = rows;
+        }
+
+        function updateRecentFills() {
+            const tbody = document.getElementById('recentFillsBody');
+            
+            if (!orderData || !orderData.recent_fills || orderData.recent_fills.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5">No recent fills</td></tr>';
+                return;
+            }
+
+            const rows = orderData.recent_fills.map(order => `
+                <tr>
+                    <td class="order-id">${formatOrderId(order.orderId)}</td>
+                    <td>${order.symbol || '-'}</td>
+                    <td>${order.executedQty || '-'}</td>
+                    <td>${formatPrice(parseFloat(order.avgPx))}</td>
+                    <td>${formatTimestamp(order.lastUpdated)}</td>
+                </tr>
+            `).join('');
+
+            tbody.innerHTML = rows;
+        }
+
+        async function loadOrders() {
+            try {
+                const response = await fetch('/api/orders?' + Date.now());
+                
+                if (!response.ok) {
+                    throw new Error(`API returned ${response.status}`);
+                }
+
+                const newOrderData = await response.json();
+                
+                // Store old order data for comparison
+                const oldOrderData = orderData;
+                orderData = newOrderData;
+                
+                updateOrderSummary();
+                updateActiveOrders();
+                updateRecentFills();
+                isApiAvailable = true;
+                
+                // Only update charts if there are new active orders
+                if (hasNewActiveOrders()) {
+                    updateCharts();
+                }
+                
+            } catch (error) {
+                console.error('Error loading orders:', error);
+                if (!isApiAvailable) {
+                    showError('Market Maker API is not available. Please ensure the bot is running.');
+                }
+            }
+        }
+
+        async function loadPosition() {
+            try {
+                const response = await fetch('/api/position?' + Date.now());
+                
+                if (!response.ok) {
+                    throw new Error(`API returned ${response.status}`);
+                }
+
+                positionData = await response.json();
+                updatePosition(positionData);
+                isApiAvailable = true;
+            } catch (error) {
+                console.error('Error loading position:', error);
+                if (!isApiAvailable) {
+                    updatePosition({position: 0, total_fills: 0});
+                }
+            }
+        }
+
+        async function loadQuotes() {
+            try {
+                const response = await fetch('/api/quotes?' + Date.now());
+                
+                if (!response.ok) {
+                    throw new Error(`API returned ${response.status}`);
+                }
+
+                const currentQuote = await response.json();
+                
+                // Add timestamp if not present
+                if (!currentQuote.timestamp) {
+                    currentQuote.timestamp = new Date().toISOString();
+                }
+                
+                // Add to quotes array (keep only last 100 for performance)
+                allQuotes.push(currentQuote);
+                if (allQuotes.length > 100) {
+                    allQuotes = allQuotes.slice(-100);
+                }
+
+                // Update UI with latest data
+                updateStats(currentQuote);
+                isApiAvailable = true;
+                
+            } catch (error) {
+                console.error('Error loading quotes:', error);
+                if (!isApiAvailable) {
+                    showError('Market Maker API is not available. Please ensure the bot is running.');
+                }
+            }
+        }
+
+        // Check API availability on startup
+        async function checkApiAvailability() {
+            try {
+                const response = await fetch('/api/status');
+                if (response.ok) {
+                    const status = await response.json();
+                    console.log('API is available, market maker is running');
+                    isApiAvailable = true;
+                    hideError();
+                    return true;
+                }
+            } catch (error) {
+                console.log('API not available, market maker is offline');
+                showError('Market Maker is not running. Please start the bot to see live data.');
+            }
+            return false;
+        }
+
+        // Auto-refresh every second
+        setInterval(() => {
+            loadQuotes();
+            loadOrders();
+            loadPosition();
+        }, 1000);
+        
+        // Initial load
+        checkApiAvailability().then(() => {
+            loadQuotes();
+            loadOrders();
+            loadPosition();
+        });
+    </script>
+</body>
+</html>
